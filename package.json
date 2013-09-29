@@ -1,0 +1,21 @@
+{
+  "name": "dataset-loader",
+  "description": "Dataset generator for search engine testing",
+  "version": "0.0.1",
+  "author": {
+    "name": "monimus"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/mykabam/dataset-loader"
+  },
+  "engines": {
+    "node": "*"
+  },
+  "dependencies": {
+    "underscore": "*",
+    "cheerio": "*",
+    "csv": "*",
+    "superagent": "*"
+  }
+}

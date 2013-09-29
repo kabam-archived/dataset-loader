@@ -3,7 +3,7 @@ var esclient = require('elasticsearchclient');
 // Initialize ES
 module.exports = (function() {
   var opts = {
-    host: 'target.monimus.com',
+    host: 'localhost',
     port: 9200
   };
 

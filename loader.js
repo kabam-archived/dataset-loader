@@ -2,8 +2,10 @@ var fs = require("fs");
 var _ = require("underscore");
 var cheerio = require("cheerio");
 var es = require("./es");
+var mongo = require("./mongo");
 var csv = require("csv");
 var request = require("superagent");
+var faker = require("./lib/Faker.js");
 
 var noop = function() {};
 
@@ -23,6 +25,7 @@ function getSchools(callback) {
       });
     })
     .on("end", function() {
+      schools.shift();
       callback(null, schools);
     })
     .on("error", function(err) {
@@ -30,6 +33,7 @@ function getSchools(callback) {
     })
 }
 
+// Load all schools from CSV to ES
 exports.loadSchools = function() {
   var bulk = [];
 
@@ -64,10 +68,7 @@ exports.loadSchools = function() {
     });
 };
 
-exports.loadStudents = function() {
-
-};
-
+// Import courses from Coursera
 exports.importCoursesToJSON = function() {
   var data = [];
 
@@ -130,36 +131,176 @@ exports.importCoursesToJSON = function() {
 
 };
 
-exports.loadCourses = function() {
-  var courses = require("./data/courses");
-  var bulk = [];
+exports.loadCourses = function(schools, size, callback) {
+  if(!(_.isArray(schools) && _.isNumber(size) && _.isFunction(callback))) {
+    return;
+  }
 
+  var loadedCourses = [];
+  var courses = require("./data/courses");
+  loadBySchool(schools.shift());
+
+  function loadBySchool(school) {
+    if(!school) {
+      callback(loadedCourses);
+      return;
+    }
+
+    var bulk = [];
+    var coursesBySchool = _.shuffle(courses).slice(0, size);
+
+    coursesBySchool.forEach(function(course, j) {
+      var unitid = school.unitid.toString();
+      course.school = {
+        school_id: unitid,
+        name: school.name
+      };
+
+      var _id = unitid+"-"+course.topic_id;
+
+      var _course = JSON.stringify(course);
+      bulk.push({ index: { _index: "mwc_search_test", _type: "courses", _id: _id } });
+      bulk.push(JSON.parse(_course));
+
+      loadedCourses.push(JSON.parse(_course));
+    });
+
+    es.bulk(bulk, loadBySchool.bind(this, schools.shift()));
+  }
+};
+
+exports.partialLoadSchools = function(size, callback) {
+  var loadedSchools;
+  
   getSchools(function(err, schools) {
-    schools.shift();
-    _loadCourses(schools);
-    console.log(bulk.length);
+    var _schools = schools.slice(0, size);
+    loadedSchools = _schools.slice(0);
+    _load(_schools);
   });
 
-  function _loadCourses(schools) {
-    schools = schools.slice(0, 3500);
-    schools.forEach(function(school, i) {
-      // Let's give 100 random courses to each school
-      var _coursesBySchool = _.shuffle(courses).slice(0,100)
-        .forEach(function(course, j) {
-          var unitid = school.unitid.toString();
-          course.school = {
-            school_id: unitid,
-            name: school.name
-          };
+  function _load(schools) {
+    if(!schools.length) {
+      console.log("Done loading schools");
+      callback(loadedSchools);
+      return;
+    }
 
-          var _id = unitid+"-"+course.topic_id;
+    var bulk = [];
+    var _schools = schools.splice(0,300);
+    _schools.forEach(function(school) {
+      bulk.push({ index: { _index: "mwc_search_test", _type: "schools", _id: school.unitid+"" } });
+      bulk.push(school);      
+    });
+    es.bulk(bulk, _load.bind(this, schools));
+  }
+};
 
-          var _course = JSON.stringify(course);
-          bulk.push({ index: { _index: 'mwc_search', _type: 'courses', _id: _id } });
-          bulk.push(JSON.parse(_course));
-        });
+exports.loadStudents = function(courses, nStudents, nCoursesPerStudent, callback) {
+  if(!(_.isArray(courses) && _.isNumber(nStudents) && _.isNumber(nCoursesPerStudent) && _.isFunction(callback))) {
+    return;
+  }
+
+  if(nCoursesPerStudent > courses.length) {
+    return;
+  }
+
+  var size = nStudents;
+  var loadedStudents = [];
+
+  var students = (function() {
+    var _students = [];
+    while(size) {
+      _students.push({
+        id: Date.now()+(Math.random()*1000000)|0,
+        name: faker.Name.findName()
+      });
+      size--;
+    }
+    return _students;
+  })();
+
+  loadByStudent(students.shift());
+
+  function loadByStudent(student) {
+    if(!student) {
+      callback(loadedStudents);
+      return;
+    }
+
+    student.courses = courses.splice(0, nCoursesPerStudent)
+      .map(function(course) {
+        delete course.instructors;
+        delete course.description;
+        return course;
+      });
+    
+    es.index("mwc_search_test", "students", student, student.id, function(err, data) {
+      courses = courses.concat(student.courses);
+      loadByStudent(students.shift());
+    });
+    
+  }
+};
+
+// Import documents from wikipedia articles to Mongo
+exports.importDocumentsToMongo = function(students, callback) {
+  var wikipediaBase = "http://en.wikipedia.org";
+  var initialSeeds = [
+    "/wiki/Quantum_mechanics",
+    "/wiki/General_relativity",
+    "/wiki/Genomics"
+  ];
+
+  var seedDocuments = [].concat(initialSeeds);
+  
+  getMoreSeeds(initialSeeds.shift());
+
+  function getMoreSeeds(url) {
+    if(!url) {
+      importDoc();
+      return;
+    }
+
+    console.log("Getting from "+url);
+
+    request.get(wikipediaBase+url, function(err, res) {
+      var $ = cheerio.load(res.text);
+      var $content = $("#bodyContent #mw-content-text");
+
+      var links = $content.find("a").toArray();
+      links = links.map(function(a) {
+        return $(a).attr("href");
+      })
+      .filter(function(link) {
+        return link.match(/^\/wiki\//);
+      });
+
+      seedDocuments = seedDocuments.concat(links);
+      getMoreSeeds(initialSeeds.shift());
+    });
+  }
+
+  function importDoc() {
+    var sourceUrl = seedDocuments.shift();
+    if(!sourceUrl) {
+      return;
+    }
+    
+    console.log("Getting from "+sourceUrl);
+    request.get(wikipediaBase+sourceUrl, function(err, res) {
+      var $ = cheerio.load(res.text);
+      var $content = $("#bodyContent #mw-content-text");
+      var title = $("#firstHeading").text();
+      var doc = new mongo.SeedDoc({
+        title: title,
+        content: $content.text().replace(/\r?\n|\r/g, " "),
+        source: sourceUrl
+      });
+      doc.save(function() {
+        importDoc();
+      });
     });
   }
 };
 
-exports.loadCourses();
+exports.importDocumentsToMongo();
