@@ -6,7 +6,9 @@ var SeedDoc = mongoose.model(
   { 
     title: String,
     content: String,
-    source: String
+    source: String,
+    created_at: Date,
+    updated_at: Date
   }
 );
 

@@ -7,6 +7,12 @@ var csv = require("csv");
 var request = require("superagent");
 var faker = require("./lib/Faker.js");
 
+var Util = {
+  randomDate: function(start, end) {
+    return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()))
+  }
+};
+
 var noop = function() {};
 
 function getSchools(callback) {
@@ -120,10 +126,15 @@ exports.importCoursesToJSON = function() {
           return i.trim();
         });
 
+      var start_date = randomDate(new Date(2013,0,1), new Date());
+      var end_date = randomDate(start_date, new Date());
+
       return { 
         topic_id: link,
         title: title,
-        instructors: instructors
+        instructors: instructors,
+        start_date: start_date,
+        end_date: end_date
       }
     });
 
@@ -189,7 +200,7 @@ exports.partialLoadSchools = function(size, callback) {
     var _schools = schools.splice(0,300);
     _schools.forEach(function(school) {
       bulk.push({ index: { _index: "mwc_search_test", _type: "schools", _id: school.unitid+"" } });
-      bulk.push(school);      
+      bulk.push(school);
     });
     es.bulk(bulk, _load.bind(this, schools));
   }
@@ -212,7 +223,9 @@ exports.loadStudents = function(courses, nStudents, nCoursesPerStudent, callback
     while(size) {
       _students.push({
         id: Date.now()+(Math.random()*1000000)|0,
-        name: faker.Name.findName()
+        name: faker.Name.findName(),
+        birthdate: Util.randomDate(new Date(1980,0,1), new Date(1998,0,1)),
+        member_since: Util.randomDate(new Date(2013,0,1), new Date())
       });
       size--;
     }
@@ -239,6 +252,7 @@ exports.loadStudents = function(courses, nStudents, nCoursesPerStudent, callback
       loadByStudent(students.shift());
     });
     
+    loadedStudents.push(student);
   }
 };
 
@@ -291,10 +305,14 @@ exports.importDocumentsToMongo = function(students, callback) {
       var $ = cheerio.load(res.text);
       var $content = $("#bodyContent #mw-content-text");
       var title = $("#firstHeading").text();
+      var created_at = randomDate(new Date(2013,0,1), new Date());
+      var updated_at = randomDate(created_at, new Date());
       var doc = new mongo.SeedDoc({
         title: title,
         content: $content.text().replace(/\r?\n|\r/g, " "),
-        source: sourceUrl
+        source: sourceUrl,
+        created_at: created_at,
+        updated_at: updated_at
       });
       doc.save(function() {
         importDoc();
@@ -303,4 +321,40 @@ exports.importDocumentsToMongo = function(students, callback) {
   }
 };
 
-exports.importDocumentsToMongo();
+exports.loadDocuments = function(students, nDocsPerStudent, callback) {
+  var n = nDocsPerStudent;
+  var count;
+  mongo.SeedDoc.count(function(err, _count) {
+    count = _count;
+    _load(0);
+  });
+
+  function _load(skip) {
+    var student = students.shift();
+    if(!student) {
+      callback();
+      return;
+    }
+    
+    delete student.birthdate;
+    delete student.member_since;
+    delete student.courses;
+
+    mongo.SeedDoc.find({ skip: skip, limit: n }, function(err, docs) {
+      var bulk = [];
+      docs.forEach(function(doc) {
+        doc = doc.toObject();
+        var _id = doc._id;
+        console.log(_id);
+        doc.student = student;
+        bulk.push({ index: { _index: "mwc_search_test", _type: "documents", _id: _id } });
+        bulk.push(doc);
+      });
+      // es.bulk(bulk, function(err, data) {
+      //   console.log(data);
+      //   _load(skip + n > count ? 0 : skip + n);
+      // });
+    });
+  }
+};
+

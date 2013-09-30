@@ -23,8 +23,8 @@ function seedStudents(courses) {
 
 function seedDocuments(students) {
   console.log("Seeding documents ...");
-  console.log(students.length);
-  loader.loadDocuments(students, 100, function() {
+  // Load 10 documents per student
+  loader.loadDocuments(students, 10, function() {
     console.log("Done seeding :)");
   });
 }
