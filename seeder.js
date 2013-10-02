@@ -2,7 +2,18 @@ var loader = require("./loader");
 var es = require("./es");
 
 function start() {
-  es.deleteIndex("mwc_search_test", seedSchools);
+  var mappings = require("./lib/mappings");
+
+  es.deleteIndex("mwc_search_test", createIndex);
+
+  function createIndex() {
+    es.createIndex("mwc_search_test", mappings)
+      .on("data", function(data) {
+        console.log(data);
+        seedSchools();
+      })
+      .exec();
+  }
 }
 
 function seedSchools() {

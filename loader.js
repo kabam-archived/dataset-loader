@@ -78,13 +78,19 @@ exports.loadSchools = function() {
 exports.importCoursesToJSON = function() {
   var data = [];
 
-  function getDescription(course, cb) {
+  function getInfo(course, cb) {
+    console.log("Getting course "+course);
     var url = "https://www.coursera.org/maestro/api/topic/information?topic-id=";
     url += course;
 
     request.get(url, function(err, res) {
-      var about = JSON.parse(res.text).about_the_course;
-      cb(about);
+      var courseInfo = JSON.parse(res.text);
+      cb({
+        about: courseInfo.about_the_course,
+        categories: (courseInfo.categories||[]).map(function(cat) {
+          return cat.name
+        })
+      });
     });
   }
 
@@ -94,8 +100,9 @@ exports.importCoursesToJSON = function() {
       save();
       return;
     }
-    getDescription(course.topic_id, function(desc) {
-      course.description = desc;
+    getInfo(course.topic_id, function(info) {
+      course.description = info.about;
+      course.categories = info.categories;
       data.push(course);
       getCourse();
     });
@@ -126,8 +133,8 @@ exports.importCoursesToJSON = function() {
           return i.trim();
         });
 
-      var start_date = randomDate(new Date(2013,0,1), new Date());
-      var end_date = randomDate(start_date, new Date());
+      var start_date = Util.randomDate(new Date(2013,0,1), new Date());
+      var end_date = Util.randomDate(start_date, new Date());
 
       return { 
         topic_id: link,
@@ -166,6 +173,8 @@ exports.loadCourses = function(schools, size, callback) {
         school_id: unitid,
         name: school.name
       };
+      course.start_date = Util.randomDate(new Date(2013,0,1), new Date());
+      course.end_date = Util.randomDate(course.start_date, new Date());
 
       var _id = unitid+"-"+course.topic_id;
 
@@ -184,7 +193,7 @@ exports.partialLoadSchools = function(size, callback) {
   var loadedSchools;
   
   getSchools(function(err, schools) {
-    var _schools = schools.slice(0, size);
+    var _schools = _.shuffle(schools.slice(0, size));
     loadedSchools = _schools.slice(0);
     _load(_schools);
   });
@@ -262,7 +271,13 @@ exports.importDocumentsToMongo = function(students, callback) {
   var initialSeeds = [
     "/wiki/Quantum_mechanics",
     "/wiki/General_relativity",
-    "/wiki/Genomics"
+    "/wiki/Genomics",
+    "/wiki/Architecture",
+    "/wiki/Politics",
+    "/wiki/Philosophy",
+    "/wiki/Mathematics",
+    "/wiki/Computer_science",
+    "/wiki/Colombia"
   ];
 
   var seedDocuments = [].concat(initialSeeds);
@@ -271,19 +286,20 @@ exports.importDocumentsToMongo = function(students, callback) {
 
   function getMoreSeeds(url) {
     if(!url) {
+      seedDocuments = _.uniq(seedDocuments);
+      console.log(seedDocuments.length);
       importDoc();
       return;
     }
 
     console.log("Getting from "+url);
-
     request.get(wikipediaBase+url, function(err, res) {
       var $ = cheerio.load(res.text);
       var $content = $("#bodyContent #mw-content-text");
 
       var links = $content.find("a").toArray();
       links = links.map(function(a) {
-        return $(a).attr("href");
+        return $(a).attr("href").trim();
       })
       .filter(function(link) {
         return link.match(/^\/wiki\//);
@@ -305,14 +321,10 @@ exports.importDocumentsToMongo = function(students, callback) {
       var $ = cheerio.load(res.text);
       var $content = $("#bodyContent #mw-content-text");
       var title = $("#firstHeading").text();
-      var created_at = randomDate(new Date(2013,0,1), new Date());
-      var updated_at = randomDate(created_at, new Date());
       var doc = new mongo.SeedDoc({
         title: title,
         content: $content.text().replace(/\r?\n|\r/g, " "),
-        source: sourceUrl,
-        created_at: created_at,
-        updated_at: updated_at
+        source: sourceUrl
       });
       doc.save(function() {
         importDoc();
@@ -340,21 +352,23 @@ exports.loadDocuments = function(students, nDocsPerStudent, callback) {
     delete student.member_since;
     delete student.courses;
 
-    mongo.SeedDoc.find({ skip: skip, limit: n }, function(err, docs) {
+    mongo.SeedDoc.find({}, null, { skip: skip, limit: n }, function(err, docs) {
       var bulk = [];
       docs.forEach(function(doc) {
         doc = doc.toObject();
-        var _id = doc._id;
-        console.log(_id);
+        doc.id = doc._id;
+        delete doc._id;
         doc.student = student;
+        doc.created_at = Util.randomDate(new Date(2013,0,1), new Date());
+        doc.updated_at = Util.randomDate(doc.created_at, new Date());
+
+        var _id = Date.now()+(Math.random()*100000000)|0;
         bulk.push({ index: { _index: "mwc_search_test", _type: "documents", _id: _id } });
         bulk.push(doc);
       });
-      // es.bulk(bulk, function(err, data) {
-      //   console.log(data);
-      //   _load(skip + n > count ? 0 : skip + n);
-      // });
+      es.bulk(bulk, function(err, data) {
+        _load(skip + n > count ? 0 : skip + n);
+      });
     });
   }
 };
-
