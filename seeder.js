@@ -37,6 +37,7 @@ function seedDocuments(students) {
   // Load 10 documents per student
   loader.loadDocuments(students, 10, function() {
     console.log("Done seeding :)");
+    process.exit();
   });
 }
 

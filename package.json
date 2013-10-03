@@ -16,6 +16,7 @@
     "underscore": "*",
     "cheerio": "*",
     "csv": "*",
-    "superagent": "*"
+    "superagent": "*",
+    "mongoose": "*"
   }
 }
