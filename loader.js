@@ -1,3 +1,4 @@
+require("date-utils");
 var fs = require("fs");
 var _ = require("underscore");
 var cheerio = require("cheerio");
@@ -133,9 +134,6 @@ exports.importCoursesToJSON = function() {
           return i.trim();
         });
 
-      var start_date = Util.randomDate(new Date(2013,0,1), new Date());
-      var end_date = Util.randomDate(start_date, new Date());
-
       return { 
         topic_id: link,
         title: title,
@@ -173,8 +171,12 @@ exports.loadCourses = function(schools, size, callback) {
         school_id: unitid,
         name: school.name
       };
-      course.start_date = Util.randomDate(new Date(2013,0,1), new Date());
-      course.end_date = Util.randomDate(course.start_date, new Date());
+      course.start_date = Util.randomDate(new Date(2013,9,1), new Date(2014,5,1));
+      course.end_date = Util.randomDate(
+        course.start_date, 
+        (new Date(course.start_date.getTime())).addDays(Math.random()*360|0)
+      );
+      course.price = course.start_date.getDaysBetween(course.end_date)*(20*Math.random()|0);
 
       var _id = unitid+"-"+course.topic_id;
 

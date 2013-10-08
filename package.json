@@ -17,6 +17,7 @@
     "cheerio": "*",
     "csv": "*",
     "superagent": "*",
-    "mongoose": "*"
+    "mongoose": "*",
+    "date-utils": "*"
   }
 }
