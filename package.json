@@ -18,6 +18,7 @@
     "csv": "*",
     "superagent": "*",
     "mongoose": "*",
-    "date-utils": "*"
+    "date-utils": "*",
+    "elasticsearchclient": "git+https://github.com/santiago/node-elasticsearch-client.git"
   }
 }
